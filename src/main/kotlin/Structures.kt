@@ -1,34 +1,53 @@
 import java.util.function.Predicate
 
+const val SUITS = "HCDS"
+const val VALUES = "A23456789TJQK"
+
 data class Card(val suit: Int, val value: Int) {
+
+    init {
+        println("Creating $suit-$value")
+    }
+
+    constructor(string: String) : this(
+        SUITS.indexOf(string[1]),
+        VALUES.indexOf(string[0]) + 1
+    )
+
     val index = suit * 13 + value // 1-52
 
     constructor(index: Int): this(
         (index - 1).floorDiv(13),
         (index - 1).mod(13)
     )
-}
 
-fun <T> Iterator<T>.size(): Int {
-    var count = 0
-    while (hasNext()) {
-        next()
-        count++
+    override fun toString(): String {
+        println("$suit-$value")
+        return "${SUITS[suit]}${VALUES[value - 1]}"
     }
-    return count
 }
 
-data class Deck(private val predicate: Predicate<Card>) : Iterable<Card> {
+class Deck(private val predicate: Predicate<Card>) : Iterable<Card> {
 
-    val size by lazy { iterator().size() }
+    companion object {
+        fun all() = Deck { true }
+
+        fun none() = Deck { false }
+    }
 
     constructor(vararg cards: Card) : this({ cards.contains(it) })
+
+    constructor(vararg cards: String) : this({ cards.contains(it.toString()) })
 
     operator fun not() = Deck(predicate.negate())
 
     operator fun plus(other: Card) = Deck(predicate.or { it == other })
 
-    operator fun plus(other: Deck) = Deck(predicate.or { other.contains(it) })
+    operator fun plus(other: Iterable<Card>) = Deck(predicate.or { other.contains(it) })
+
+    operator fun minus(other: Card) = Deck(predicate.and { it != other })
+
+    operator fun minus(other: Iterable<Card>) = Deck(predicate.and { !other.contains(it) })
 
     override fun iterator() = (1..52)
         .asSequence()
@@ -36,33 +55,38 @@ data class Deck(private val predicate: Predicate<Card>) : Iterable<Card> {
         .filter { predicate.test(it) }
         .iterator()
 
-    fun draw(remove: Boolean = true): Card {
+    fun draw() = toList().random()
+}
 
+class OrderedDeck(vararg cards: Card): Iterable<Card> {
+
+    constructor(vararg cards: String) : this(*cards.map { Card(it) }.toTypedArray())
+
+    private val cards: MutableList<Card> = cards.toMutableList()
+
+    operator fun plus(other: Card) {
+        cards.add(0, other)
+    }
+
+    override fun iterator() = cards.iterator()
+
+    operator fun get(index: Int) = cards[index]
+}
+
+data class GameState(val knocked: Boolean, val myCards: Deck, val oppCards: Deck, val centreCards: OrderedDeck) {
+
+    val pickupDeck by lazy {
+        Deck.all() - myCards - oppCards - centreCards.toSet()
     }
 }
 
-data class GameState(val knocked: Boolean, val cards: Deck, val oppCards: Deck, val cardStack: Deck)
+class GameStateNode private constructor(private val getState: () -> GameState) {
 
-class GameStateNode private constructor(value: GameState?, parent: GameStateNode?, changes: ((GameState) -> Unit)?) {
-
-    val getState: () -> GameState
     private val children = mutableSetOf<GameStateNode>()
 
-    init {
-        // Validation
-        if ((parent == null) == (value == null)) throw IllegalArgumentException("Expected one or the other, got (${parent == null}, ${value == null})")
-        if ((parent == null) != (changes == null)) throw IllegalArgumentException("Expected none or both, got (${parent == null}, ${changes == null})")
-        // Set state getter
-        getState = if (parent != null) {
-            { parent.getState().apply(changes!!) }
-        } else {
-            { value!! }
-        }
-    }
+    constructor(value: GameState) : this({ value })
 
-    constructor(value: GameState) : this(value, null, null)
-
-    constructor(parent: GameStateNode, changes: ((GameState) -> Unit)) : this(null, parent, changes)
+    constructor(parent: GameStateNode, changes: ((GameState) -> Unit)) : this({ parent.getState().apply(changes) })
 
     fun addChild(changes: (GameState) -> Unit) {
         children.add(GameStateNode(this, changes))
