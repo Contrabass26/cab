@@ -1,30 +1,71 @@
+import java.io.BufferedReader
+import java.io.InputStreamReader
+
 fun main() {
-    // Test game
-    val state = GameState(
-        false,
-        Deck("5S", "7D", "5C"),
-        Deck.none(),
-        OrderedDeck("2C")
-    )
-    makeMove(state)
+    val state = initGame()
+    while (true) {
+        oppMove(state)
+        myMove(state)
+    }
 }
 
-fun makeMove(state: GameState) {
+fun initGame(): GameState {
+    val myCards = Deck.none()
+    for (i in 1..3) {
+        myCards += Card(input("Enter card $i: "))
+    }
+    return GameState(false, myCards, Deck.none(), OrderedDeck.none())
+}
+
+fun input(prompt: String): String {
+    print(prompt)
+    return readln()
+}
+
+fun myMove(state: GameState) {
+    println("\n--- ME ---")
+    println("My cards: ${state.myCards}")
+    println("Top card: ${state.centreCards[0]}")
     // Get two decks to choose from
-    val deck1 = state.pickupDeck
-    val deck2 = Deck(state.centreCards[0])
-    // Compare average card values
-    val av1 = getAverageValue(deck1)
-    val av2 = getAverageValue(deck2)
+    val pickupDeck = state.getPickupDeck()
+    println("Pickup deck = $pickupDeck")
+    val centreCard = state.centreCards[0]
+    // Compare hand values after pickup
+    val pickupValues = pickupDeck.asSequence()
+        .map { state.myCards + it }
+        .map { it.getHandValue() }
+        .toList()
+    println("Pickup values = $pickupValues")
+    val centreValue = (state.myCards + centreCard).getHandValue()
+    println("Centre value = $centreValue")
+    val centreScore = pickupValues.count { centreValue >= it } / pickupValues.size.toDouble() * 100
     // Output results
-    println()
-    println("Face-up card:\t$av2")
-    println("Pickup deck:\t$av1")
-    val choice = if (av1 > av2) "pickup deck" else "face-up card"
-    println("You should choose the $choice.")
+    if (centreScore >= 50) {
+        println("Take the face-up card (%.2f%%)".format(centreScore))
+    } else {
+        println("Take a random card (%.2f%%)".format(100 - centreScore))
+    }
+    // Get card that was picked
+    state.myCards += if (centreScore >= 50)
+        centreCard
+    else
+        Card(input("Enter drawn card: "))
+    // Choose card to put down
+    val putDownCard = state.myCards.asSequence()
+        .maxBy { (state.myCards - it).getHandValue() }
+    println("Put down $putDownCard")
+    state.myCards -= putDownCard
+    state.centreCards += putDownCard
 }
 
-fun getAverageValue(deck: Deck) = deck
-    .asSequence()
-    .map { it.value }
-    .average()
+fun oppMove(state: GameState) {
+    println("\n--- OPPONENT ---")
+    println("Opponent's cards: ${state.oppCards}")
+    val pickedUp = input("Where did opponent pick up from (F or R)? ")
+    if (pickedUp == "F") {
+        state.oppCards += state.centreCards.pop()
+    }
+    val putDown = Card(input("What did opponent put down? "))
+    state.centreCards += putDown
+    state.oppCards -= putDown
+}
