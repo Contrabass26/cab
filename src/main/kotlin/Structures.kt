@@ -1,5 +1,3 @@
-import java.util.function.Predicate
-
 const val SUITS = "HCDS"
 const val VALUES = "A23456789TJQK"
 
@@ -29,37 +27,80 @@ data class Card(val suit: Int, val value: Int) {
     }
 }
 
-class Deck(private var predicate: Predicate<Card>) : Iterable<Card> {
+enum class GameStage { ME_UP, ME_DOWN, OPP_UP, OPP_DOWN }
+
+class Deck(vararg cards: Card): Iterable<Card> {
 
     companion object {
-        fun all() = Deck { true }
+        fun none() = Deck(*arrayOf<Card>())
 
-        fun none() = Deck { false }
+        fun all(): Deck {
+            val deck = none()
+            for (index in 0..51)
+                deck.cards.add(Card(index))
+            return deck
+        }
     }
 
-    constructor(vararg cards: Card) : this({ cards.contains(it) })
+    constructor(vararg cards: String) : this(*cards.map { Card(it) }.toTypedArray())
 
-    constructor(vararg cards: String) : this({ cards.contains(it.toString()) })
+    private val cards: MutableList<Card> = cards.toMutableList()
 
-    operator fun not() = Deck(predicate.negate())
+    operator fun plusAssign(other: Card) {
+        cards.add(0, other)
+    }
 
-    operator fun plus(other: Card) = Deck(predicate.or { it == other })
+    operator fun plusAssign(others: Iterable<Card>) {
+        cards.addAll(others)
+    }
 
-    operator fun plus(other: Iterable<Card>) = Deck(predicate.or { other.contains(it) })
+    operator fun minusAssign(other: Card) {
+        cards.remove(other)
+    }
 
-    operator fun minus(other: Card) = Deck(predicate.and { it != other })
+    operator fun minusAssign(others: Iterable<Card>) {
+        cards.removeAll(others.toSet())
+    }
 
-    operator fun minus(other: Iterable<Card>) = Deck(predicate.and { !other.contains(it) })
+    operator fun plus(other: Card): Deck {
+        val new = Deck.none()
+        new.cards.addAll(this.cards)
+        new.cards.add(0, other)
+        return new
+    }
 
-    operator fun plusAssign(other: Card) { predicate = predicate.or { it == other } }
+    operator fun plus(others: Iterable<Card>): Deck {
+        val new = Deck.none()
+        new.cards.addAll(this.cards)
+        new.cards.addAll(others)
+        return new
+    }
 
-    operator fun plusAssign(other: Iterable<Card>) { predicate = predicate.or { other.contains(it) } }
+    operator fun minus(other: Card): Deck {
+        val new = Deck.none()
+        new.cards.addAll(this.cards)
+        new.cards.remove(other)
+        return new
+    }
 
-    operator fun minusAssign(other: Card) { predicate = predicate.and { it != other } }
+    operator fun minus(others: Iterable<Card>): Deck {
+        val new = Deck.none()
+        new.cards.addAll(this.cards)
+        new.cards.removeAll(others.toSet())
+        return new
+    }
 
-    operator fun minusAssign(other: Iterable<Card>) { predicate = predicate.and { !other.contains(it) } }
+    override fun iterator() = cards.iterator()
 
-    operator fun contains(card: Card) = predicate.test(card)
+    operator fun get(index: Int) = cards[index]
+
+    fun pop(): Card {
+        return cards.removeFirst()
+    }
+
+    fun peek(): Card {
+        return cards.first()
+    }
 
     fun getHandValue(): Int {
         // Check for 30
@@ -82,58 +123,76 @@ class Deck(private var predicate: Predicate<Card>) : Iterable<Card> {
             }
             .max()
     }
-
-    override fun iterator() = (0..51)
-        .asSequence()
-        .map { Card(it) }
-        .filter { predicate.test(it) }
-        .iterator()
-
-    override fun toString() = joinToString(" ")
 }
 
-class OrderedDeck(vararg cards: Card): Iterable<Card> {
-
-    companion object {
-        fun none() = OrderedDeck(*arrayOf<Card>())
-    }
-
-    constructor(vararg cards: String) : this(*cards.map { Card(it) }.toTypedArray())
-
-    private val cards: MutableList<Card> = cards.toMutableList()
-
-    operator fun plusAssign(other: Card) {
-        cards.add(0, other)
-    }
-
-    operator fun minusAssign(other: Card) {
-        cards.remove(other)
-    }
-
-    override fun iterator() = cards.iterator()
-
-    operator fun get(index: Int) = cards[index]
-
-    fun pop(): Card {
-        return cards.removeFirst()
-    }
-}
-
-data class GameState(val knocked: Boolean, val myCards: Deck, val oppCards: Deck, val centreCards: OrderedDeck) {
+data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: Deck, val oppCards: Deck, val centreCards: Deck) {
 
     fun getPickupDeck() =
         Deck.all() - myCards - oppCards - centreCards.toSet()
-}
 
-class GameStateNode private constructor(private val getState: () -> GameState) {
+    fun getBestMove(depth: Int) {
+        if (myCards.count() == 4) {
+            // Need to put one down
+            for (meCardDown in myCards) {
+                // We're looking to assign some kind of score to each meCardDown
+                var score = 0
+                // Suppose we put this one down
+                val state1 = this.copy( // The hypothetical future state
+                    myCards = myCards - meCardDown,
+                    centreCards = centreCards + meCardDown
+                )
+                // Now the opponent has to pick one up
+                // What's the chance that they take the face-up card?
+                val blindCards = state1.getPickupDeck()
+                val faceUpCard = state1.centreCards.peek()
+                val faceUpValue = (state1.myCards + faceUpCard).getHandValue()
+                // We assume that P(opponent takes blind) = P(blind > faceUp)
+                val blindChance = blindCards.asSequence()
+                    .map { state1.myCards + it }
+                    .map { it.getHandValue() }
+                    .map { it - faceUpValue }
+                    .count { it >= 0 } / state1.centreCards.count().toDouble()
+                // Suppose the opponent takes the face-up card
+                val state2 = this.copy(
+                    oppCards = oppCards + faceUpCard,
+                    centreCards = centreCards - faceUpCard
+                )
 
-    private val children = mutableSetOf<GameStateNode>()
+            }
+        }
+    }
 
-    constructor(value: GameState) : this({ value })
-
-    constructor(parent: GameStateNode, changes: ((GameState) -> Unit)) : this({ parent.getState().apply(changes) })
-
-    fun addChild(changes: (GameState) -> Unit) {
-        children.add(GameStateNode(this, changes))
+    fun branch(): List<GameState> {
+        return when (stage) {
+            GameStage.ME_UP -> {
+                // I need to pick up a card
+                val cards = getPickupDeck()
+                return cards.map {
+                    this.copy(
+                        myCards = myCards + it,
+                    )
+                }.plus(
+                    this.copy(
+                        myCards = myCards + centreCards.peek(),
+                        centreCards = centreCards - centreCards.peek()
+                    )
+                )
+            }
+            GameStage.ME_DOWN -> {
+                // I need to put down a card
+                return myCards.map {
+                    this.copy(
+                        myCards = myCards - it,
+                        centreCards = centreCards + it
+                    )
+                }
+            }
+            GameStage.OPP_UP -> {
+                listOf()
+            }
+            GameStage.OPP_DOWN -> {
+                listOf()
+            }
+        }
     }
 }

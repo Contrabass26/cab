@@ -1,6 +1,3 @@
-import java.io.BufferedReader
-import java.io.InputStreamReader
-
 fun main() {
     val state = initGame()
     while (true) {
@@ -14,7 +11,7 @@ fun initGame(): GameState {
     for (i in 1..3) {
         myCards += Card(input("Enter card $i: "))
     }
-    return GameState(false, myCards, Deck.none(), OrderedDeck.none())
+    return GameState(false, false, myCards, Deck.none(), Deck.none())
 }
 
 fun input(prompt: String): String {
@@ -38,15 +35,15 @@ fun myMove(state: GameState) {
     println("Pickup values = $pickupValues")
     val centreValue = (state.myCards + centreCard).getHandValue()
     println("Centre value = $centreValue")
-    val centreScore = pickupValues.count { centreValue >= it } / pickupValues.size.toDouble() * 100
+    val centreScore = pickupValues.sumOf { centreValue - it } / pickupValues.size.toDouble()
     // Output results
-    if (centreScore >= 50) {
-        println("Take the face-up card (%.2f%%)".format(centreScore))
+    if (centreScore >= 0) {
+        println("Take the face-up card (%.2f)".format(centreScore))
     } else {
-        println("Take a random card (%.2f%%)".format(100 - centreScore))
+        println("Take a random card (%.2f)".format(centreScore))
     }
     // Get card that was picked
-    state.myCards += if (centreScore >= 50)
+    state.myCards += if (centreScore >= 0)
         centreCard
     else
         Card(input("Enter drawn card: "))
