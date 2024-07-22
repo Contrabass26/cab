@@ -11,7 +11,7 @@ fun initGame(): GameState {
     for (i in 1..3) {
         myCards += Card(input("Enter card $i: "))
     }
-    return GameState(false, false, myCards, Deck.none(), Deck.none())
+    return GameState(false, GameStage.OPP_UP, myCards, Deck.none(), Deck.none())
 }
 
 fun input(prompt: String): String {

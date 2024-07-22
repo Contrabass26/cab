@@ -123,6 +123,10 @@ class Deck(vararg cards: Card): Iterable<Card> {
             }
             .max()
     }
+
+    fun isUnique(): Boolean {
+        return cards.size == cards.toSet().size
+    }
 }
 
 data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: Deck, val oppCards: Deck, val centreCards: Deck) {
@@ -162,7 +166,7 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
         }
     }
 
-    fun branch(): List<GameState> {
+    fun branch(): Map<GameState, Double?> {
         return when (stage) {
             GameStage.ME_UP -> {
                 // I need to pick up a card
@@ -176,7 +180,7 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
                         myCards = myCards + centreCards.peek(),
                         centreCards = centreCards - centreCards.peek()
                     )
-                )
+                ).associateWith { null }
             }
             GameStage.ME_DOWN -> {
                 // I need to put down a card
@@ -185,14 +189,53 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
                         myCards = myCards - it,
                         centreCards = centreCards + it
                     )
-                }
+                }.associateWith { null }
             }
             GameStage.OPP_UP -> {
-                listOf()
+                // Opponent needs to pick up a card
+                val cards = getPickupDeck()
+                return cards.map {
+                    this.copy(
+                        oppCards = oppCards + it,
+                    )
+                }.plus(
+                    this.copy(
+                        oppCards = oppCards + centreCards.peek(),
+                        centreCards = centreCards - centreCards.peek()
+                    )
+                ).associateWith { null }
             }
             GameStage.OPP_DOWN -> {
-                listOf()
+                // What decks could the opponent have
+                val unknownCount = 4 - oppCards.count()
+                val decks = (0..<unknownCount).map { getPickupDeck() }.toTypedArray()
+                val oppDecks = nestedLoop(*decks).map { oppCards + it }.toList()
+                val deckProbability = 1.0 / oppDecks.size
+                val maps = oppDecks.map { hand ->
+                    // For each card that the opponent could put down
+                    val handValues = hand.associateWith { (hand - it).getHandValue() }
+                    val total = handValues.values.sum()
+                    return@map hand.associateWith { deckProbability * handValues[it]!! / total.toDouble() }
+                }
+                return maps.foldRight(mapOf(), )
             }
+        }
+    }
+}
+
+fun <T> nestedLoop(vararg elements: Iterable<T>) = sequence {
+    val counts = elements.map { 0 }.toTypedArray()
+    val maxima = elements.map { it.count() - 1 }
+    outer@ while (maxima.zip(counts, Int::minus).none { it < 0 }) {
+        val args = counts.mapIndexed { i, count -> elements[i].elementAt(count) }
+        yield(args)
+        // Increment counter
+        for (i in counts.size - 1 downTo 0) {
+            counts[i]++
+            if (counts[i] > maxima[i]) {
+                if (i == 0) break@outer
+                counts[i] = 0
+            } else break
         }
     }
 }
