@@ -1,17 +1,16 @@
 fun main() {
-    val state = initGame()
-    while (true) {
-        oppMove(state)
-        myMove(state)
-    }
+    val state = GameState(false, GameStage.ME_UP, Deck("4D", "6D", "5D"), Deck.none(), Deck("2S", "5S"))
+    val newState = state.makeBestMove()
+    println(newState)
 }
 
-fun initGame(): GameState {
+fun initGame(stage: GameStage): GameState {
     val myCards = Deck.none()
-    for (i in 1..3) {
+    val handSize = if (stage == GameStage.ME_DOWN) 4 else 3
+    for (i in 1..handSize) {
         myCards += Card(input("Enter card $i: "))
     }
-    return GameState(false, GameStage.OPP_UP, myCards, Deck.none(), Deck.none())
+    return GameState(false, stage, myCards, Deck.none(), Deck.none())
 }
 
 fun input(prompt: String): String {

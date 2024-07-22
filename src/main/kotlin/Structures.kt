@@ -124,9 +124,7 @@ class Deck(vararg cards: Card): Iterable<Card> {
             .max()
     }
 
-    fun isUnique(): Boolean {
-        return cards.size == cards.toSet().size
-    }
+    override fun toString() = cards.toString()
 }
 
 data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: Deck, val oppCards: Deck, val centreCards: Deck) {
@@ -134,100 +132,109 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
     fun getPickupDeck() =
         Deck.all() - myCards - oppCards - centreCards.toSet()
 
-    fun getBestMove(depth: Int) {
-        if (myCards.count() == 4) {
-            // Need to put one down
-            for (meCardDown in myCards) {
-                // We're looking to assign some kind of score to each meCardDown
-                var score = 0
-                // Suppose we put this one down
-                val state1 = this.copy( // The hypothetical future state
-                    myCards = myCards - meCardDown,
-                    centreCards = centreCards + meCardDown
-                )
-                // Now the opponent has to pick one up
-                // What's the chance that they take the face-up card?
-                val blindCards = state1.getPickupDeck()
-                val faceUpCard = state1.centreCards.peek()
-                val faceUpValue = (state1.myCards + faceUpCard).getHandValue()
-                // We assume that P(opponent takes blind) = P(blind > faceUp)
-                val blindChance = blindCards.asSequence()
-                    .map { state1.myCards + it }
-                    .map { it.getHandValue() }
-                    .map { it - faceUpValue }
-                    .count { it >= 0 } / state1.centreCards.count().toDouble()
-                // Suppose the opponent takes the face-up card
-                val state2 = this.copy(
-                    oppCards = oppCards + faceUpCard,
-                    centreCards = centreCards - faceUpCard
-                )
+    fun getWinProbability(depth: Int): Double {
+        val result = if (depth == 0)
+            if (myCards.getHandValue() > oppCards.getHandValue()) 1.0 else 0.0
+        else {
+            val branches = branch()
+            branches.map { it.key.getWinProbability(depth - 1) * it.value }.sum()
+        }
+//        print("\t".repeat(2 - depth))
+//        println("$this = $result")
+        return result
+    }
 
+    fun makeBestMove(): GameState {
+        val probabilities = branch().keys.associateWith { it.getWinProbability(2) }
+        return probabilities.maxBy { it.value }.key
+    }
+
+    fun branch(): Map<GameState, Double> = when (stage) {
+        GameStage.ME_UP -> {
+            // I need to pick up a card
+            val cards = getPickupDeck()
+            val states = cards.map {
+                this.copy(
+                    stage = GameStage.ME_DOWN,
+                    myCards = myCards + it,
+                )
+            }.plus(
+                this.copy(
+                    stage = GameStage.ME_DOWN,
+                    myCards = myCards + centreCards.peek(),
+                    centreCards = centreCards - centreCards.peek()
+                )
+            )
+            states.associateWith { 1.0 / states.size }
+        }
+
+        GameStage.ME_DOWN -> {
+            // I need to put down a card
+            val states = myCards.map {
+                this.copy(
+                    stage = GameStage.OPP_UP,
+                    myCards = myCards - it,
+                    centreCards = centreCards + it
+                )
             }
+            states.associateWith { 1.0 / states.size }
+        }
+
+        GameStage.OPP_UP -> {
+            // Opponent needs to pick up a card
+            val cards = getPickupDeck()
+            val states = cards.map {
+                this.copy(
+                    stage = GameStage.OPP_DOWN,
+                    oppCards = oppCards + it,
+                )
+            }.plus(
+                this.copy(
+                    stage = GameStage.OPP_DOWN,
+                    oppCards = oppCards + centreCards.peek(),
+                    centreCards = centreCards - centreCards.peek()
+                )
+            )
+            states.associateWith { 1.0 / states.size }
+        }
+
+        GameStage.OPP_DOWN -> {
+            // What decks could the opponent have
+            val unknownCount = 4 - oppCards.count()
+            val oppDecks = if (unknownCount == 0) listOf(oppCards) else {
+                val decks = (0..<unknownCount).map { getPickupDeck() }.toTypedArray()
+                nestedLoop(*decks).map { oppCards + it }.toList()
+            }
+            val deckProbability = 1.0 / oppDecks.size
+            val maps = oppDecks.map { hand ->
+                // For each card that the opponent could put down
+                val handValues = hand.associateWith { (hand - it).getHandValue() }
+                val total = handValues.values.sum()
+                return@map hand.associateBy({
+                    this.copy(
+                        stage = GameStage.ME_UP,
+                        oppCards = oppCards - it,
+                        centreCards = centreCards + it
+                    )
+                }) { deckProbability * handValues[it]!! / total.toDouble() }
+            }
+            maps.foldRight(mapOf()) { a, b -> a + b }
         }
     }
 
-    fun branch(): Map<GameState, Double?> {
-        return when (stage) {
-            GameStage.ME_UP -> {
-                // I need to pick up a card
-                val cards = getPickupDeck()
-                return cards.map {
-                    this.copy(
-                        myCards = myCards + it,
-                    )
-                }.plus(
-                    this.copy(
-                        myCards = myCards + centreCards.peek(),
-                        centreCards = centreCards - centreCards.peek()
-                    )
-                ).associateWith { null }
-            }
-            GameStage.ME_DOWN -> {
-                // I need to put down a card
-                return myCards.map {
-                    this.copy(
-                        myCards = myCards - it,
-                        centreCards = centreCards + it
-                    )
-                }.associateWith { null }
-            }
-            GameStage.OPP_UP -> {
-                // Opponent needs to pick up a card
-                val cards = getPickupDeck()
-                return cards.map {
-                    this.copy(
-                        oppCards = oppCards + it,
-                    )
-                }.plus(
-                    this.copy(
-                        oppCards = oppCards + centreCards.peek(),
-                        centreCards = centreCards - centreCards.peek()
-                    )
-                ).associateWith { null }
-            }
-            GameStage.OPP_DOWN -> {
-                // What decks could the opponent have
-                val unknownCount = 4 - oppCards.count()
-                val decks = (0..<unknownCount).map { getPickupDeck() }.toTypedArray()
-                val oppDecks = nestedLoop(*decks).map { oppCards + it }.toList()
-                val deckProbability = 1.0 / oppDecks.size
-                val maps = oppDecks.map { hand ->
-                    // For each card that the opponent could put down
-                    val handValues = hand.associateWith { (hand - it).getHandValue() }
-                    val total = handValues.values.sum()
-                    return@map hand.associateWith { deckProbability * handValues[it]!! / total.toDouble() }
-                }
-                return maps.foldRight(mapOf(), )
-            }
-        }
+    override fun toString(): String {
+        return "GameState(knocked=$knocked, stage=$stage, myCards=$myCards, oppCards=$oppCards, centreCards=$centreCards)"
     }
 }
 
 fun <T> nestedLoop(vararg elements: Iterable<T>) = sequence {
+//    println("New nested loop")
+    if (elements.isEmpty()) return@sequence
     val counts = elements.map { 0 }.toTypedArray()
     val maxima = elements.map { it.count() - 1 }
     outer@ while (maxima.zip(counts, Int::minus).none { it < 0 }) {
         val args = counts.mapIndexed { i, count -> elements[i].elementAt(count) }
+//        println(args)
         yield(args)
         // Increment counter
         for (i in counts.size - 1 downTo 0) {
