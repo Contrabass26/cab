@@ -1,6 +1,6 @@
 fun main() {
     val state = GameState(false, GameStage.ME_UP, Deck("4D", "6D", "5D"), Deck.none(), Deck("2S", "5S"))
-    val newState = state.makeBestMove()
+    val newState = state.getBestMove()
     println(newState)
 }
 

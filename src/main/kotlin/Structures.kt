@@ -27,7 +27,11 @@ data class Card(val suit: Int, val value: Int) {
     }
 }
 
-enum class GameStage { ME_UP, ME_DOWN, OPP_UP, OPP_DOWN }
+enum class GameStage(private val index: Int) {
+    ME_UP(0), ME_DOWN(1), OPP_UP(2), OPP_DOWN(3);
+
+    operator fun next() = entries[index + 1]
+}
 
 class Deck(vararg cards: Card): Iterable<Card> {
 
@@ -127,7 +131,7 @@ class Deck(vararg cards: Card): Iterable<Card> {
     override fun toString() = cards.toString()
 }
 
-data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: Deck, val oppCards: Deck, val centreCards: Deck) {
+data class GameState(val meKnocked: Boolean?, val stage: GameStage, val myCards: Deck, val oppCards: Deck, val centreCards: Deck) {
 
     fun getPickupDeck() =
         Deck.all() - myCards - oppCards - centreCards.toSet()
@@ -144,12 +148,12 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
         return result
     }
 
-    fun makeBestMove(): GameState {
-        val probabilities = branch().keys.associateWith { it.getWinProbability(2) }
+    fun getBestMove(): Action {
+        val probabilities = branch().keys.associateWith { (this + it).getWinProbability(2) }
         return probabilities.maxBy { it.value }.key
     }
 
-    fun branch(): Map<GameState, Double> = when (stage) {
+    fun branch(): Map<Action, Double> = when (stage) {
         GameStage.ME_UP -> {
             // I need to pick up a card
             val cards = getPickupDeck()
@@ -223,8 +227,10 @@ data class GameState(val knocked: Boolean, val stage: GameStage, val myCards: De
     }
 
     override fun toString(): String {
-        return "GameState(knocked=$knocked, stage=$stage, myCards=$myCards, oppCards=$oppCards, centreCards=$centreCards)"
+        return "GameState(knocked=$meKnocked, stage=$stage, myCards=$myCards, oppCards=$oppCards, centreCards=$centreCards)"
     }
+
+    operator fun plus(action: Action) = action(this)
 }
 
 fun <T> nestedLoop(vararg elements: Iterable<T>) = sequence {
@@ -245,4 +251,89 @@ fun <T> nestedLoop(vararg elements: Iterable<T>) = sequence {
             } else break
         }
     }
+}
+
+abstract class Action {
+
+    companion object {
+
+        fun playCard() = object : Action() {
+            override fun invoke(state: GameState) = with(state) {
+                val card = Card(input("Which card was played? "))
+                when (stage) {
+                    GameStage.OPP_DOWN -> copy(stage = stage.next(), oppCards = oppCards - card, centreCards = centreCards + card)
+                    GameStage.ME_DOWN -> copy(stage = stage.next(), myCards = myCards - card, centreCards = centreCards + card)
+                    else -> throw IllegalStateException("Action is not allowed for game state: $this")
+                }
+            }
+
+            operator fun invoke(state: GameState, card: Card) = with(state) {
+                when (stage) {
+                    GameStage.OPP_DOWN -> copy(stage = stage.next(), oppCards = oppCards - card, centreCards = centreCards + card)
+                    GameStage.ME_DOWN -> copy(stage = stage.next(), myCards = myCards - card, centreCards = centreCards + card)
+                    else -> throw IllegalStateException("Action is not allowed for game state: $this")
+                }
+            }
+
+            override fun branch(state: GameState): Sequence<GameState> {
+                if (state.stage == GameStage.ME_DOWN) {
+                    return state.myCards.asSequence().map { this(state, it) }
+                }
+                if (state.stage == GameStage.OPP_DOWN) {
+
+                }
+            }
+        }
+
+        fun knock() = object : Action() {
+            override fun invoke(state: GameState) = with(state) {
+                assert(stage == GameStage.ME_UP || stage == GameStage.OPP_UP)
+                copy(
+                    stage = stage.next(),
+                    meKnocked = stage == GameStage.ME_UP
+                )
+            }
+
+            override fun branch(state: GameState) = sequenceOf(this(state))
+        }
+
+        fun pickBlind() = object : Action() {
+            override fun invoke(state: GameState) = when (state.stage) {
+                GameStage.ME_UP -> {
+                    val card = Card(input("Which card did you pick up? "))
+                    this(state, card)
+                }
+
+                GameStage.OPP_UP -> state.copy(stage = state.stage.next())
+                else -> throw IllegalStateException("Action is not allowed for game state: $this")
+            }
+
+            private operator fun invoke(state: GameState, card: Card) = with(state) {
+                when (stage) {
+                    GameStage.ME_UP -> copy(stage = stage.next(), myCards = myCards + card)
+                    GameStage.OPP_UP -> copy(stage = stage.next(), oppCards = oppCards + card)
+                    else -> throw IllegalStateException("Action is not allowed for game state: $this")
+                }
+            }
+
+            override fun branch(state: GameState) = state.getPickupDeck().asSequence().map { this(state, it) }
+        }
+
+        fun pickVisible() = object : Action() {
+            override fun invoke(state: GameState) = with(state) {
+                val card = centreCards.peek()
+                when (stage) {
+                    GameStage.ME_UP -> copy(stage = stage.next(), myCards = myCards + card, centreCards = centreCards - card)
+                    GameStage.OPP_UP -> copy(stage = stage.next(), oppCards = oppCards + card, centreCards = centreCards - card)
+                    else -> throw IllegalStateException("Action is not allowed for game state: $this")
+                }
+            }
+
+            override fun branch(state: GameState) = sequenceOf(this(state))
+        }
+    }
+
+    abstract operator fun invoke(state: GameState): GameState
+
+    abstract fun branch(state: GameState): Sequence<GameState>
 }
