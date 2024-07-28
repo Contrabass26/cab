@@ -1,6 +1,8 @@
+const val DEPTH = 1
+
 fun main() {
-    val state = PartialGameState(0, null, GameStage.ME_DOWN, toCardsSet("3H", "3S", "8C", "9D"), toCardsSet("JS", "6C", "3C"), toCards())
-    println(state.getBestMove(2))
+    val state = FullGameState(null, GameStage.ME_DOWN, toCardsSet("3S", "8C", "9D", "AD"), toCardsSet("JS", "6C", "KD"), toCards("3C", "3H"))
+    println(state.getBestMove(DEPTH))
 }
 
 fun input(prompt: String): String {
