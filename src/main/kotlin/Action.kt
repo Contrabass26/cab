@@ -1,4 +1,7 @@
-import java.lang.IllegalArgumentException
+import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
+
+private val LOGGER = LogManager.getLogger("Action")
 
 fun <T> List<T>.prependCopyGet(item: T): MutableList<T> {
     val newList = this.toMutableList()
@@ -10,6 +13,7 @@ fun <T> List<T>.prependCopyGet(item: T): MutableList<T> {
 class Action(private val toString: String, val branch: (FullGameState) -> List<FullGameState>) {
 
     companion object {
+
         fun ME_PLAY_CARD(card: Card) = Action("ME_PLAY_CARD($card)") { state ->
             with(state) {
                 assert(card in myCards)
@@ -87,67 +91,70 @@ class Action(private val toString: String, val branch: (FullGameState) -> List<F
         return toString
     }
 
-    private fun log(message: String, depth: Int) {
-        println("\t".repeat(DEPTH - depth) + message)
-    }
-
     // Returns the probability of winning if I play this action at this GameState
     fun getWinProbability(state: FullGameState, depth: Int): Double {
-        log("If action $this happens at state $state, what's the probability that I win?", depth)
+        LOGGER.debug("If action {} happens at state {}, what's the probability that I win?", this, state)
         val states = branch(state) // We are assuming that all action branches are equally likely
         // Base case
-        if (depth < 0) throw IllegalArgumentException("Depth was <0")
-        if (depth == 0) {
-            log("Max depth reached - let's simplify things", depth)
+        if (depth <= 0 && (state.stage == GameStage.ME_UP || state.stage == GameStage.OPP_UP)) {
+            LOGGER.debug("Max depth reached - let's simplify things")
             val result = states.map {
                 val myHandValue = it.myCards.getHandValue()
                 val oppHandValue = it.oppCards.getHandValue()
                 when {
-                    myHandValue > oppHandValue -> 1.0
-                    myHandValue < oppHandValue -> 0.0
+                    myHandValue > oppHandValue -> 0.7
+                    myHandValue < oppHandValue -> 0.2
                     else -> 0.5
                 }
             }.average()
-            log("Returning $result", depth)
+            LOGGER.debug("Returning $result")
             return result
         }
         // Recursion
         val result = states.map { newState ->
-            log("Suppose the action results in ${newState - state}, what actions could follow", depth)
+            LOGGER.debug("Suppose the action results in {}, what actions could follow", newState - state)
             // Suppose this one happened
             // What actions could follow?
             val actions = newState.stage.actions(newState)
-            log("These ones: $actions", depth)
+            LOGGER.debug("These ones: {}", actions)
             // Find the win probabilities if each of these were played
             val winProbabilities = actions.associateWith { it.getWinProbability(newState, depth - 1) }
-            log("So the probabilities of me winning after playing the actions are:", depth)
-            log("$winProbabilities", depth)
-            log("Now for the play probabilities", depth)
+            LOGGER.debug("So the probabilities of me winning at {} after the actions are played are:", newState)
+            LOGGER.debug("{}", winProbabilities)
+            LOGGER.debug("Now for the play probabilities")
             // Find the probabilities of each of these being played
             // TODO: Should this go outside of the block?
+            // TODO: A better way to distribute play probabilities based on win probabilities - currently everything seems to tend to 0.5
             val playProbabilities = if (newState.stage.isOpp) {
-                log("It's the opponent's turn, so bad things will probably happen for me", depth)
+                LOGGER.debug("It's the opponent's turn, so bad things will probably happen for me")
                 // The opponent is choosing which move will be played
                 // Distribute the play probabilities inversely according to the win probabilities
-                val oldTotal = winProbabilities.values.sum()
-                val newWinProbabilities = winProbabilities.mapValues { oldTotal - it.value }
-                val newTotal = newWinProbabilities.values.sum()
-                if (newTotal == 0.0) winProbabilities else winProbabilities.mapValues { it.value / newTotal }
+                val oppWinProbabilities = winProbabilities.mapValues { 1 - it.value }
+                val oppWinTotal = oppWinProbabilities.values.sum()
+                if (oppWinTotal == 0.0)
+                    oppWinProbabilities.mapValues { 1.0 / oppWinProbabilities.size }
+                else
+                    oppWinProbabilities.mapValues { it.value / oppWinTotal }
             } else {
-                log("It's my turn, so only the best move has a chance of being played", depth)
+                LOGGER.debug("It's my turn, so only the best move has a chance of being played")
                 // I am choosing which move will be played, so I would always choose the highest win probability
                 val maxValue = winProbabilities.values.max()
                 val probability = 1.0 / winProbabilities.values.count { it == maxValue }
                 winProbabilities.mapValues { if (it.value == maxValue && !probability.isNaN()) probability else 0.0 }
+//                val total = winProbabilities.values.sum()
+//                if (total == 0.0)
+//                    winProbabilities.mapValues { 1.0 / winProbabilities.size }
+//                else
+//                    winProbabilities.mapValues { it.value / total }
             }
-            log("So the probabilities of playing the actions are:", depth)
-            log("$playProbabilities", depth)
+            LOGGER.debug("So the probabilities of playing the actions are:")
+            LOGGER.debug("{}", playProbabilities)
             // Find overall win probability if the action results in this state
-            val total = playProbabilities.mapValues { it.value * playProbabilities[it.key]!! }.values.sum()
-            log("The total probability for this state is $total", depth)
+            val total = playProbabilities.mapValues { it.value * winProbabilities[it.key]!! }.values.sum()
+            LOGGER.debug("The total probability for this state is {}", total)
             total
-        }.average()
-        log("The average final probability across all states is $result", depth)
+        }.sumOf { it / states.size }
+        LOGGER.debug("The average final probability across all states is {}", result)
         return result
     }
 }

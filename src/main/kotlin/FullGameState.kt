@@ -1,3 +1,10 @@
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import org.apache.logging.log4j.LogManager
+
+private val LOGGER = LogManager.getLogger("FullGameState")
+
 // Captures all the information about the current state that is known by either player
 data class FullGameState(val meKnocked: Boolean?, val stage: GameStage, val myCards: Set<Card>, val oppCards: Set<Card>, val centreCards: List<Card>) {
 
@@ -14,14 +21,17 @@ data class FullGameState(val meKnocked: Boolean?, val stage: GameStage, val myCa
         return null
     }
 
-    fun getBestMove(depth: Int): Action {
-        val winProbabilities = stage.actions(this).associateWith { it.getWinProbability(this, depth) }
-        println(winProbabilities)
-        return winProbabilities.maxBy { it.value }.key
+    suspend fun getBestMove(depth: Int): Action {
+        return coroutineScope {
+            val winProbabilities = stage.actions(this@FullGameState).associateWith { action -> async { action.getWinProbability(this@FullGameState, depth) } }
+            val awaitedWinProbabilities = winProbabilities.mapValues { it.value.await() }
+            LOGGER.info(awaitedWinProbabilities)
+            awaitedWinProbabilities.maxBy { it.value }.key
+        }
     }
 
     override fun toString(): String {
-        return "${if (meKnocked != null) "$meKnocked " else ""}$stage $myCards $oppCards ${centreCards[0]}"
+        return "${if (meKnocked != null) "$meKnocked " else ""}$stage $myCards $oppCards ${centreCards.firstOrNull()}"
     }
 
     operator fun minus(other: FullGameState): String {
@@ -38,7 +48,7 @@ data class FullGameState(val meKnocked: Boolean?, val stage: GameStage, val myCa
             oppCards.size < other.oppCards.size -> "opp-${other.oppCards - oppCards}"
             else -> ""
         }
-        val centreCardDiff = if (centreCards[0] != other.centreCards[0]) "mid+${centreCards[0]}" else ""
+        val centreCardDiff = if (centreCards.firstOrNull() != other.centreCards.firstOrNull()) "mid+${centreCards.firstOrNull()}" else ""
         return listOf(knockDiff, myCardsDiff, oppCardsDiff, centreCardDiff).filterNot { it == "" }.joinToString(" ")
     }
 }

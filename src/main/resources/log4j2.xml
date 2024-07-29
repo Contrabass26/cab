@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <ThresholdFilter level="info" onMatch="ACCEPT" onMismatch="DENY"/>
+            <PatternLayout disableAnsi="false" pattern="%highlight{[%d{HH:mm:ss}]}{INFO=blue, WARN=blue, ERROR=blue} %highlight{[%t/%level]}{INFO=green, WARN=green, ERROR=green} %highlight{(%logger)}{INFO=cyan, WARN=cyan, ERROR=cyan} %msg{nolookups}%n" />
+        </Console>
+        <File name="File" filename="log/out.log" append="false">
+            <PatternLayout disableAnsi="true" pattern="%highlight{[%d{HH:mm:ss}]}{INFO=blue, WARN=blue, ERROR=blue} %highlight{[%t/%level]}{INFO=green, WARN=green, ERROR=green} %highlight{(%logger)}{INFO=cyan, WARN=cyan, ERROR=cyan} %msg{nolookups}%n" />
+        </File>
+    </Appenders>
+    <Loggers>
+        <Root level="debug">
+            <AppenderRef ref="File"/>
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>

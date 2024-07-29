@@ -1,8 +1,13 @@
-const val DEPTH = 1
+import kotlinx.coroutines.runBlocking
+import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
 
-fun main() {
-    val state = FullGameState(null, GameStage.ME_DOWN, toCardsSet("3S", "8C", "9D", "AD"), toCardsSet("JS", "6C", "KD"), toCards("3C", "3H"))
-    println(state.getBestMove(DEPTH))
+const val DEPTH = 3
+private val LOGGER: Logger = LogManager.getLogger("Main")
+
+fun main() = runBlocking {
+    val state = FullGameState(null, GameStage.ME_UP, toCardsSet("KC", "4S", "6C"), toCardsSet("AD", "5S", "6H"), toCards("2C", "5D"))
+    LOGGER.info(state.getBestMove(DEPTH))
 }
 
 fun input(prompt: String): String {
